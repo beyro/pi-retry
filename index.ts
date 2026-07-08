@@ -37,6 +37,8 @@ export default function (pi: ExtensionAPI) {
 	let retryCount = 0;
 	/** True while an automatic retry is queued (suppresses retryCount reset). */
 	let retryInProgress = false;
+	/** True while we are sleeping/waiting between retries. */
+	let isSleeping = false;
 
 	// Helpers --------------------------------------------------------------
 
@@ -79,6 +81,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_end", async (event, ctx) => {
+		if (isSleeping) return;
 		if (!lastUserMessage) return;
 		if (retryCount >= CONFIG.maxRetries) return;
 
@@ -156,7 +159,12 @@ export default function (pi: ExtensionAPI) {
 			);
 		}
 
-		await backoff(retryCount, customDelayMs);
+		isSleeping = true;
+		try {
+			await backoff(retryCount, customDelayMs);
+		} finally {
+			isSleeping = false;
+		}
 
 		// Send a continuation prompt to nudge the agent forward.
 		// Re-sending the original user message from many turns ago rarely

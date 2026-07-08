@@ -281,6 +281,53 @@ describe("extension factory", () => {
 			expect(mock.captured.notifications[0].text).toContain("waiting 15.0s");
 		});
 
+		it("ignores concurrent agent_end events when already sleeping", async () => {
+			const startHandler = mock.captured.events.get("before_agent_start")![0];
+			const endHandler = mock.captured.events.get("agent_end")![0];
+			const ctx = createMockContext(mock.captured.notifications);
+
+			await startHandler({ prompt: "Hello", images: [] }, ctx);
+
+			// Trigger first agent_end (starts sleeping for 15s)
+			const promise1 = endHandler(
+				{
+					messages: [
+						makeUserMessage("Hello"),
+						makeAssistantMessage({
+							stopReason: "error",
+							errorMessage: "Rate limit. Please retry in 15 seconds.",
+						}),
+					],
+				},
+				ctx,
+			);
+
+			// Trigger a second concurrent agent_end (should be ignored immediately because isSleeping is true)
+			const promise2 = endHandler(
+				{
+					messages: [
+						makeUserMessage("Hello"),
+						makeAssistantMessage({
+							stopReason: "error",
+							errorMessage: "Rate limit. Please retry in 15 seconds.",
+						}),
+					],
+				},
+				ctx,
+			);
+
+			// Since the second one is ignored, it should resolve immediately without waiting on timers
+			await promise2;
+
+			// Advance timers by 15s to finish the first one
+			jest.advanceTimersByTime(15000);
+			await promise1;
+
+			// Only one follow-up retry should have been sent!
+			expect(mock.captured.sentMessages.length).toBe(1);
+			expect(mock.captured.sentMessages[0].message).toBe("Go on");
+		});
+
 		it("retries on silent failure (no successful assistant message)", async () => {
 			const startHandler = mock.captured.events.get("before_agent_start")![0];
 			const endHandler = mock.captured.events.get("agent_end")![0];
