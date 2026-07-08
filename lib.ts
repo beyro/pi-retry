@@ -102,3 +102,31 @@ export function computeBackoffDelay(
 ): number {
 	return Math.min(baseDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
 }
+
+/**
+ * Check the error message for the phrase "retry in" followed by a number.
+ * If found, returns the parsed delay in milliseconds, otherwise null.
+ */
+export function extractRetryDelay(errorMessage: string): number | null {
+	const match = errorMessage.match(/retry\s+in\s+(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?/i);
+	if (!match) return null;
+
+	const value = parseFloat(match[1]);
+	const unit = match[2]?.toLowerCase();
+
+	if (unit) {
+		if (unit.startsWith("milli") || unit === "ms") {
+			return Math.round(value);
+		}
+		if (unit.startsWith("min")) {
+			return Math.round(value * 60 * 1000);
+		}
+		if (unit.startsWith("hour") || unit.startsWith("hr")) {
+			return Math.round(value * 3600 * 1000);
+		}
+	}
+
+	// Default to seconds
+	return Math.round(value * 1000);
+}
+

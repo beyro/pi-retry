@@ -5,6 +5,7 @@ import {
 	isProviderError,
 	hasSuccessfulAssistantMessage,
 	computeBackoffDelay,
+	extractRetryDelay,
 	DEFAULT_CONFIG,
 	type Config,
 } from "../lib.ts";
@@ -373,3 +374,43 @@ describe("DEFAULT_CONFIG", () => {
 		expect(DEFAULT_CONFIG.retryOnSilentFailure).toBe(true);
 	});
 });
+
+// =============================================================================
+// extractRetryDelay
+// =============================================================================
+
+describe("extractRetryDelay", () => {
+	it("returns null if 'retry in' phrase is not found", () => {
+		expect(extractRetryDelay("Something went wrong")).toBeNull();
+		expect(extractRetryDelay("Error: 400 Bad Request")).toBeNull();
+	});
+
+	it("extracts delay with seconds unit (case-insensitive)", () => {
+		expect(extractRetryDelay("Please retry in 15 seconds.")).toBe(15000);
+		expect(extractRetryDelay("Please retry in 42.434782791s")).toBe(42435);
+		expect(extractRetryDelay("retry in 5s")).toBe(5000);
+		expect(extractRetryDelay("retry in 3 SEC")).toBe(3000);
+		expect(extractRetryDelay("retry in 2.5 secs")).toBe(2500);
+	});
+
+	it("extracts delay with milliseconds unit", () => {
+		expect(extractRetryDelay("retry in 500 ms")).toBe(500);
+		expect(extractRetryDelay("Please retry in 2000 milliseconds.")).toBe(2000);
+	});
+
+	it("extracts delay with minutes unit", () => {
+		expect(extractRetryDelay("retry in 2 minutes")).toBe(120000);
+		expect(extractRetryDelay("retry in 1.5 min")).toBe(90000);
+	});
+
+	it("extracts delay with hours unit", () => {
+		expect(extractRetryDelay("retry in 1 hour")).toBe(3600000);
+		expect(extractRetryDelay("retry in 2 hrs")).toBe(7200000);
+	});
+
+	it("defaults to seconds when no unit is specified", () => {
+		expect(extractRetryDelay("retry in 10")).toBe(10000);
+		expect(extractRetryDelay("retry in 4.5")).toBe(4500);
+	});
+});
+

@@ -20,6 +20,7 @@ import {
 	isProviderError,
 	hasSuccessfulAssistantMessage,
 	computeBackoffDelay,
+	extractRetryDelay,
 	type Config,
 } from "./lib.js";
 
@@ -39,9 +40,9 @@ export default function (pi: ExtensionAPI) {
 
 	// Helpers --------------------------------------------------------------
 
-	/** Exponential backoff sleep. */
-	async function backoff(attempt: number): Promise<void> {
-		const delay = computeBackoffDelay(
+	/** Exponential backoff or custom sleep. */
+	async function backoff(attempt: number, customDelayMs?: number): Promise<void> {
+		const delay = customDelayMs !== undefined ? customDelayMs : computeBackoffDelay(
 			attempt,
 			CONFIG.baseDelayMs,
 			CONFIG.maxDelayMs,
@@ -130,12 +131,32 @@ export default function (pi: ExtensionAPI) {
 		retryCount++;
 		retryInProgress = true;
 
-		ctx.ui.notify(
-			`${reason}, continuing (${retryCount}/${CONFIG.maxRetries})...`,
-			retryCount >= CONFIG.maxRetries - 1 ? "warning" : "info",
-		);
+		// Check for custom retry delay in error messages
+		let customDelayMs: number | undefined;
+		for (const msg of event.messages) {
+			const errorMessage = (msg as { errorMessage?: string }).errorMessage;
+			if (isProviderError(msg, patterns) && errorMessage) {
+				const delay = extractRetryDelay(errorMessage);
+				if (delay !== null) {
+					customDelayMs = delay;
+					break;
+				}
+			}
+		}
 
-		await backoff(retryCount);
+		if (customDelayMs !== undefined) {
+			ctx.ui.notify(
+				`${reason} (retry request detected: waiting ${(customDelayMs / 1000).toFixed(1)}s), continuing (${retryCount}/${CONFIG.maxRetries})...`,
+				retryCount >= CONFIG.maxRetries - 1 ? "warning" : "info",
+			);
+		} else {
+			ctx.ui.notify(
+				`${reason}, continuing (${retryCount}/${CONFIG.maxRetries})...`,
+				retryCount >= CONFIG.maxRetries - 1 ? "warning" : "info",
+			);
+		}
+
+		await backoff(retryCount, customDelayMs);
 
 		// Send a continuation prompt to nudge the agent forward.
 		// Re-sending the original user message from many turns ago rarely

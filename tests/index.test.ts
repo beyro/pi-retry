@@ -244,6 +244,43 @@ describe("extension factory", () => {
 			expect(mock.captured.sentMessages[0].message).toBe("Go on");
 		});
 
+		it("sets custom timeout from errorMessage 'retry in X seconds'", async () => {
+			const startHandler = mock.captured.events.get("before_agent_start")![0];
+			const endHandler = mock.captured.events.get("agent_end")![0];
+			const ctx = createMockContext(mock.captured.notifications);
+
+			await startHandler({ prompt: "Hello", images: [] }, ctx);
+
+			// Initiate the agent_end with "retry in 15 seconds"
+			const promise = endHandler(
+				{
+					messages: [
+						makeUserMessage("Hello"),
+						makeAssistantMessage({
+							stopReason: "error",
+							errorMessage: "Rate limit exceeded. Please retry in 15 seconds.",
+						}),
+					],
+				},
+				ctx,
+			);
+
+			// At 14 seconds (14000ms), it should NOT have retried yet
+			jest.advanceTimersByTime(14000);
+			// Give any microtasks a chance to run
+			await Promise.resolve();
+			expect(mock.captured.sentMessages.length).toBe(0);
+
+			// Advance by 1 more second (to 15000ms), it should retry now
+			jest.advanceTimersByTime(1000);
+			// Await the main promise so agent_end finishes execution
+			await promise;
+
+			expect(mock.captured.sentMessages.length).toBe(1);
+			expect(mock.captured.sentMessages[0].message).toBe("Go on");
+			expect(mock.captured.notifications[0].text).toContain("waiting 15.0s");
+		});
+
 		it("retries on silent failure (no successful assistant message)", async () => {
 			const startHandler = mock.captured.events.get("before_agent_start")![0];
 			const endHandler = mock.captured.events.get("agent_end")![0];
